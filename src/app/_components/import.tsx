@@ -166,15 +166,35 @@ export function ImportBook() {
 
   }
 
-  const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-
-    if (file) {
+  async function combineChapters(files: FileList) {
+    const containerDiv = document.createElement('div');
+    const chapters = []
+    for (const file of files) {
       const fileContents = await readFileContents(file);
-
       const story = getStoryAndAuthor(fileContents)
-      ExportEPub(story.story_element.outerHTML, `${story.title}_${story.chapter}`, story.author);
+      chapters.push(story)
+      containerDiv.appendChild(story.story_element);
     }
+    const firstChapter = chapters[0]
+    if (firstChapter === undefined) {
+      throw new Error("Please select at least 1 chapter")
+    }
+    return {
+      "story_element": containerDiv,
+      "title": firstChapter.title,
+      "author": firstChapter.author,
+    }
+  }
+
+  const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+
+    if (files == null) {
+      throw new Error("Please choose files")
+    }
+    const book = await combineChapters(files)
+
+    ExportEPub(book.story_element.outerHTML, book.title, book.author);
   };
 
   return (
