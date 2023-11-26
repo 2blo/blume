@@ -120,7 +120,25 @@ export function ImportBook() {
       throw new Error("Failed to get chapter selector");
     }
     const chapterSelector = chapterElement as HTMLSelectElement;
-    return chapterSelector.options[chapterSelector.selectedIndex]?.value;
+    const selectedChapter = chapterSelector.options[chapterSelector.selectedIndex]
+    if (selectedChapter == null) {
+      throw new Error("Failed to get selected chapter");
+    }
+    return selectedChapter.text.trim();
+  }
+
+  function getChromeChapters(fileContents: string) {
+    const chapterElement = findIdInHTML(fileContents, "chap_select");
+    if (chapterElement == null) {
+      throw new Error("Failed to get chapter selector");
+    }
+
+    const chapterSelector = chapterElement as HTMLSelectElement;
+    const chapterNames = [];
+    for (const option of chapterSelector.options) {
+      chapterNames.push(option.text.trim());
+    }
+    return chapterNames;
   }
 
   function getChapter(fileContents: string) {
@@ -133,6 +151,19 @@ export function ImportBook() {
       }
     }
     throw new Error("Failed to get chapter")
+
+  }
+
+  function getChapters(fileContents: string) {
+    const chapterGetters = [getChromeChapters]
+    for (const chapterGetter of chapterGetters) {
+      try {
+        return chapterGetter(fileContents)
+      } catch {
+
+      }
+    }
+    throw new Error("Failed to get chapters")
 
   }
 
@@ -156,15 +187,18 @@ export function ImportBook() {
     }
 
     const chapter = getChapter(fileContents)
+    const allChapters = getChapters(fileContents)
 
     return {
       "story_element": story_element,
       "title": title,
       "chapter": chapter,
+      "allChapters": allChapters,
       "author": author,
     }
 
   }
+
 
   async function combineChapters(files: FileList) {
     const containerDiv = document.createElement('div');
@@ -173,12 +207,33 @@ export function ImportBook() {
       const fileContents = await readFileContents(file);
       const story = getStoryAndAuthor(fileContents)
       chapters.push(story)
-      containerDiv.appendChild(story.story_element);
     }
     const firstChapter = chapters[0]
     if (firstChapter === undefined) {
       throw new Error("Please select at least 1 chapter")
     }
+
+    const allChapters = firstChapter.allChapters
+
+    const sortedChapters = []
+    for (const chapterName of allChapters) {
+      const nextChapters = chapters.filter((chapter) => chapter.chapter === chapterName)
+      const nMatches = nextChapters.length
+      if (nMatches != 1) {
+        throw new Error(`Expected 1 chapter of name ${chapterName}. got ${nMatches}.`)
+      }
+      const nextChapter = nextChapters[0]
+      if (nextChapter === undefined) {
+        throw new Error("Got 0 chapters")
+      }
+      sortedChapters.push(nextChapter)
+    }
+
+    for (const chapter of sortedChapters) {
+      containerDiv.appendChild(chapter.story_element);
+    }
+
+
     return {
       "story_element": containerDiv,
       "title": firstChapter.title,
