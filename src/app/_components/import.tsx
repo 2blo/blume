@@ -1,12 +1,30 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { saveAs } from "file-saver";
 import * as React from 'react';
 import url from "url";
 import epub from "epub-gen-memory/bundle";
 
+class UserError extends Error {
+  constructor(message: string) {
+    super(message);
+
+    Object.setPrototypeOf(this, UserError.prototype);
+  }
+}
+
+class ApplicationError extends Error {
+  constructor(message: string) {
+    super(message);
+
+    Object.setPrototypeOf(this, ApplicationError.prototype);
+  }
+}
+
 export function ImportBook() {
+
+  const [result, setResult] = useState<string | null>(null);
   const inputFile = useRef<HTMLInputElement | null>(null);
 
   const onButtonClick = () => {
@@ -63,7 +81,10 @@ export function ImportBook() {
       },
     ];
     epub(option, content).then(
-      (content) => saveAs(content, title + ".epub"),
+      (content) => {
+        saveAs(content, title + ".epub")
+        setResult("success");
+      },
       (err) => console.error("Failed to generate Ebook because of ", err),
     );
   };
@@ -77,7 +98,7 @@ export function ImportBook() {
     if (story_text != null) {
       return story_text
     }
-    throw new Error("Failed to get storycontent element");
+    throw new ApplicationError("Failed to get storycontent element");
 
   }
 
@@ -89,7 +110,7 @@ export function ImportBook() {
         return author_div
       }
     }
-    throw new Error("Failed to get author div");
+    throw new ApplicationError("Failed to get author div");
 
   }
 
@@ -99,17 +120,17 @@ export function ImportBook() {
       (button) => button.localName == "span",
     )[0];
     if (chapterButton == null) {
-      throw new Error("Failed to get chapter button");
+      throw new ApplicationError("Failed to get chapter button");
     }
     const chapterElement = findTagInHTML(chapterButton.outerHTML, "a")[0];
     if (chapterElement == null) {
-      throw new Error("Failed to get chapter anchor");
+      throw new ApplicationError("Failed to get chapter anchor");
     }
     const chapterAnchor = chapterElement as HTMLAnchorElement;
     const chapterUrl = url.parse(chapterAnchor.href, true);
     const chapter = chapterUrl.query.chapter;
     if (typeof chapter !== "string") {
-      throw new Error("Failed to get chapter");
+      throw new ApplicationError("Failed to get chapter");
     }
     return chapter
   }
@@ -117,12 +138,12 @@ export function ImportBook() {
   function getChromeChapter(fileContents: string) {
     const chapterElement = findIdInHTML(fileContents, "chap_select");
     if (chapterElement == null) {
-      throw new Error("Failed to get chapter selector");
+      throw new ApplicationError("Failed to get chapter selector");
     }
     const chapterSelector = chapterElement as HTMLSelectElement;
     const selectedChapter = chapterSelector.options[chapterSelector.selectedIndex]
     if (selectedChapter == null) {
-      throw new Error("Failed to get selected chapter");
+      throw new ApplicationError("Failed to get selected chapter");
     }
     return selectedChapter.text.trim();
   }
@@ -130,7 +151,7 @@ export function ImportBook() {
   function getChromeChapters(fileContents: string) {
     const chapterElement = findIdInHTML(fileContents, "chap_select");
     if (chapterElement == null) {
-      throw new Error("Failed to get chapter selector");
+      throw new ApplicationError("Failed to get chapter selector");
     }
 
     const chapterSelector = chapterElement as HTMLSelectElement;
@@ -150,7 +171,7 @@ export function ImportBook() {
 
       }
     }
-    throw new Error("Failed to get chapter")
+    throw new ApplicationError("Failed to get chapter")
 
   }
 
@@ -163,7 +184,7 @@ export function ImportBook() {
 
       }
     }
-    throw new Error("Failed to get chapters")
+    throw new ApplicationError("Failed to get chapters")
 
   }
 
@@ -177,13 +198,13 @@ export function ImportBook() {
     const author_anchor = findTagInHTML(author_div.outerHTML, "a");
     const author = author_anchor[0]?.textContent;
     if (author == null) {
-      throw new Error("Failed to get author");
+      throw new ApplicationError("Failed to get author");
     }
 
     const title_bold = findTagInHTML(author_div.outerHTML, "b");
     const title = title_bold[0]?.textContent;
     if (title == null) {
-      throw new Error("Failed to get title");
+      throw new ApplicationError("Failed to get title");
     }
 
     const chapter = getChapter(fileContents)
@@ -210,7 +231,7 @@ export function ImportBook() {
     }
     const firstChapter = chapters[0]
     if (firstChapter === undefined) {
-      throw new Error("Please select at least 1 chapter")
+      throw new UserError("Please select at least 1 chapter")
     }
 
     const allChapters = firstChapter.allChapters
@@ -219,12 +240,12 @@ export function ImportBook() {
     for (const chapterName of allChapters) {
       const nextChapters = chapters.filter((chapter) => chapter.chapter === chapterName)
       const nMatches = nextChapters.length
-      if (nMatches != 1) {
-        throw new Error(`Expected 1 chapter of name ${chapterName}. got ${nMatches}.`)
+      if (nMatches == 0) {
+        throw new UserError(`Chapter missing: "${chapterName}".`)
       }
       const nextChapter = nextChapters[0]
       if (nextChapter === undefined) {
-        throw new Error("Got 0 chapters")
+        throw new ApplicationError("Got 0 chapters")
       }
       sortedChapters.push(nextChapter)
     }
@@ -245,17 +266,32 @@ export function ImportBook() {
     const files = event.target.files;
 
     if (files == null) {
-      throw new Error("Please choose files")
+      throw new UserError("Please choose files")
     }
-    const book = await combineChapters(files)
+    try {
+      const book = await combineChapters(files)
+      ExportEPub(book.story_element.outerHTML, book.title, book.author);
+      setResult("Success")
+    } catch (error) {
+      if (error instanceof UserError) {
+        setResult(error.message)
+      } else if (error instanceof ApplicationError) {
+        setResult(`Application error, contact developer: ${error.message}`)
+      } else if (typeof error === "string") {
+        setResult(`Application error, contact developer: ${error}`)
+      } else if (error instanceof Error) {
+        setResult(`Application error, contact developer: ${error.message}`)
+      } else {
+        setResult(`Application error, contact developer: got a non-string, non-Error error`)
+      }
+    }
 
-    ExportEPub(book.story_element.outerHTML, book.title, book.author);
   };
 
   return (
-    <div>
-      <button onClick={onButtonClick}>Open file upload window</button>
-
+    <div className="text-center">
+      <h2>Convert to E-Book</h2>
+      <button onClick={onButtonClick}>FanFiction Chapters</button>
       <input
         type="file"
         id="file"
@@ -264,6 +300,7 @@ export function ImportBook() {
         style={{ display: "none" }}
         onChange={onFileChange}
       />
+      {result && <p>{result}</p>}
     </div>
   );
 }
